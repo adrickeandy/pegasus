@@ -6,41 +6,6 @@ on:
     branches: [main]
 
 jobs:
-  build-android:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-
-      - run: flutter pub get
-
-      - run: flutter create . --platforms=android --org com.pegasus
-
-      - name: Bump compileSdk to 36
-        run: |
-          sed -i -E 's/compileSdk[[:space:]]*=[[:space:]]*[^ ]+/compileSdk = 36/' android/app/build.gradle.kts
-          echo "----- build.gradle.kts after edit -----"
-          cat android/app/build.gradle.kts
-
-      - name: Add Internet permission
-        run: sed -i '/<manifest /a\    <uses-permission android:name="android.permission.INTERNET" />' android/app/src/main/AndroidManifest.xml
-
-      - name: Build APK
-        run: flutter build apk --release --dart-define=GEMINI_API_KEYS=${{ secrets.GEMINI_API_KEYS }}
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: pegasus-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
-
   build-windows:
     runs-on: windows-latest
     steps:
