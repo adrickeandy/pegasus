@@ -1,4 +1,4 @@
-name: Build Pegasus APK
+name: Build Pegasus
 
 on:
   workflow_dispatch:
@@ -6,34 +6,41 @@ on:
     branches: [main]
 
 jobs:
-  build:
+  build-android:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Java
-        uses: actions/setup-java@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-
-      - name: Install dependencies
-        run: flutter pub get
-
-      - name: Generate platform folders
-        run: flutter create . --platforms=android --org com.pegasus
-
-      - name: Build APK
-        run: flutter build apk --release --dart-define=GEMINI_API_KEYS=${{ secrets.GEMINI_API_KEYS }}
-
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
+      - run: flutter pub get
+      - run: flutter create . --platforms=android --org com.pegasus
+      - name: Add Internet permission
+        run: sed -i '/<manifest /a\    <uses-permission android:name="android.permission.INTERNET" />' android/app/src/main/AndroidManifest.xml
+      - run: flutter build apk --release --dart-define=GEMINI_API_KEYS=${{ secrets.GEMINI_API_KEYS }}
+      - uses: actions/upload-artifact@v4
         with:
           name: pegasus-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+      - run: flutter config --enable-windows-desktop
+      - run: flutter pub get
+      - run: flutter create . --platforms=windows --org com.pegasus
+      - run: flutter build windows --release --dart-define=GEMINI_API_KEYS=${{ secrets.GEMINI_API_KEYS }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pegasus-windows
+          path: |
+            build/windows/x64/runner/Release/**
+            build/windows/runner/Release/**
