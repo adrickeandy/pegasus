@@ -26,6 +26,9 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Generate platform folders
+        run: flutter create . --platforms=android --org com.pegasus
+
       - name: Build APK
         run: flutter build apk --release --dart-define=GEMINI_API_KEYS=${{ secrets.GEMINI_API_KEYS }}
 
