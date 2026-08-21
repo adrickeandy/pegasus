@@ -6,38 +6,24 @@ on:
     branches: [main]
 
 jobs:
-  build-android:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-      - run: flutter pub get
-      - run: flutter create . --platforms=android --org com.pegasus
-      - name: Add Internet permission
-        run: sed -i '/<manifest /a\    <uses-permission android:name="android.permission.INTERNET" />' android/app/src/main/AndroidManifest.xml
-      - run: flutter build apk --release --dart-define=GEMINI_API_KEYS=${{ secrets.GEMINI_API_KEYS }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: pegasus-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
-
   build-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+
       - run: flutter config --enable-windows-desktop
+
       - run: flutter pub get
+
       - run: flutter create . --platforms=windows --org com.pegasus
-      - run: flutter build windows --release --dart-define=GEMINI_API_KEYS=${{ secrets.GEMINI_API_KEYS }}
+
+      - name: Build Windows app
+        run: flutter build windows --release --dart-define=GEMINI_API_KEYS=${{ secrets.GEMINI_API_KEYS }}
+
       - uses: actions/upload-artifact@v4
         with:
           name: pegasus-windows

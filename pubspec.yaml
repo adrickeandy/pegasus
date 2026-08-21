@@ -11,7 +11,8 @@ dependencies:
     sdk: flutter
   http: ^1.2.0                # networking
   cupertino_icons: ^1.0.6
-  sqflite: ^2.3.3              # local conversation storage
+  sqflite: ^2.3.3               # local conversation storage
+  sqflite_common_ffi: ^2.3.3    # required for sqflite to work on Windows/Linux desktop
   path: ^1.9.0                 # required by sqflite for db path joining
   path_provider: ^2.1.3        # finds the on-device db directory
   flutter_markdown: ^0.7.3     # renders **bold**, lists, code blocks

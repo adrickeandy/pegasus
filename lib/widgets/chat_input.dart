@@ -5,6 +5,7 @@ import 'package:mime/mime.dart';
 import '../models/chat_message.dart';
 import '../theme/app_theme.dart';
 import 'glass_container.dart';
+import 'hover_glow.dart';
 
 class ChatInput extends StatefulWidget {
   final void Function(String text, Attachment? attachment) onSend;
@@ -22,8 +23,18 @@ class ChatInput extends StatefulWidget {
 
 class _ChatInputState extends State<ChatInput> {
   final TextEditingController _controller = TextEditingController();
+  final FocusNode _focusNode = FocusNode();
   Attachment? _pendingAttachment;
   bool _isPicking = false;
+  bool _isFocused = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode.addListener(() {
+      setState(() => _isFocused = _focusNode.hasFocus);
+    });
+  }
 
   Future<void> _pickFile() async {
     setState(() => _isPicking = true);
@@ -70,7 +81,10 @@ class _ChatInputState extends State<ChatInput> {
     if ((text.isEmpty && _pendingAttachment == null) || widget.isSending) {
       return;
     }
-    widget.onSend(text.isEmpty ? 'Describe this file.' : text, _pendingAttachment);
+    widget.onSend(
+      text.isEmpty ? 'Describe this file.' : text,
+      _pendingAttachment,
+    );
     _controller.clear();
     setState(() => _pendingAttachment = null);
   }
@@ -78,6 +92,7 @@ class _ChatInputState extends State<ChatInput> {
   @override
   void dispose() {
     _controller.dispose();
+    _focusNode.dispose();
     super.dispose();
   }
 
@@ -90,88 +105,118 @@ class _ChatInputState extends State<ChatInput> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (_pendingAttachment != null)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: GlassContainer(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  borderRadius: BorderRadius.circular(14),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.attach_file_rounded,
-                          size: 16, color: AppTheme.accent),
-                      const SizedBox(width: 6),
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 180),
-                        child: Text(
-                          _pendingAttachment!.name,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: AppTheme.textPrimary,
-                            fontSize: 13,
-                          ),
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              child: _pendingAttachment != null
+                  ? Align(
+                      key: const ValueKey('attachment-chip'),
+                      alignment: Alignment.centerLeft,
+                      child: GlassContainer(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 8),
+                        borderRadius: BorderRadius.circular(14),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.attach_file_rounded,
+                                size: 16, color: AppTheme.accent),
+                            const SizedBox(width: 6),
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 180),
+                              child: Text(
+                                _pendingAttachment!.name,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: AppTheme.textPrimary,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            GestureDetector(
+                              onTap: () =>
+                                  setState(() => _pendingAttachment = null),
+                              child: const Icon(Icons.close_rounded,
+                                  size: 16, color: AppTheme.textSecondary),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(width: 6),
-                      GestureDetector(
-                        onTap: () =>
-                            setState(() => _pendingAttachment = null),
-                        child: const Icon(Icons.close_rounded,
-                            size: 16, color: AppTheme.textSecondary),
-                      ),
-                    ],
-                  ),
-                ),
+                    )
+                  : const SizedBox.shrink(key: ValueKey('no-attachment')),
+            ),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOut,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(26),
+                boxShadow: _isFocused
+                    ? [
+                        BoxShadow(
+                          color: AppTheme.accent.withOpacity(0.30),
+                          blurRadius: 20,
+                          spreadRadius: -2,
+                        ),
+                      ]
+                    : [],
               ),
-            GlassContainer(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              borderRadius: BorderRadius.circular(26),
-              child: Row(
-                children: [
-                  IconButton(
-                    onPressed: (widget.isSending || _isPicking)
-                        ? null
-                        : _pickFile,
-                    icon: Icon(
-                      Icons.add_circle_outline_rounded,
-                      color: _isPicking
-                          ? AppTheme.textSecondary
-                          : AppTheme.accent,
-                    ),
-                  ),
-                  Expanded(
-                    child: TextField(
-                      controller: _controller,
-                      minLines: 1,
-                      maxLines: 5,
-                      textInputAction: TextInputAction.send,
-                      onSubmitted: (_) => _submit(),
-                      style: const TextStyle(color: AppTheme.textPrimary),
-                      decoration: const InputDecoration(
-                        hintText: 'Message Pegasus',
-                        hintStyle: TextStyle(color: AppTheme.textSecondary),
-                        border: InputBorder.none,
-                        isDense: true,
+              child: GlassContainer(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                borderRadius: BorderRadius.circular(26),
+                child: Row(
+                  children: [
+                    HoverGlow(
+                      borderRadius: BorderRadius.circular(24),
+                      child: IconButton(
+                        onPressed: (widget.isSending || _isPicking)
+                            ? null
+                            : _pickFile,
+                        icon: Icon(
+                          Icons.add_circle_outline_rounded,
+                          color: _isPicking
+                              ? AppTheme.textSecondary
+                              : AppTheme.accent,
+                        ),
                       ),
                     ),
-                  ),
-                  IconButton(
-                    onPressed: widget.isSending ? null : _submit,
-                    icon: Icon(
-                      Icons.arrow_upward_rounded,
-                      color: widget.isSending
-                          ? AppTheme.textSecondary
-                          : AppTheme.accent,
+                    Expanded(
+                      child: TextField(
+                        controller: _controller,
+                        focusNode: _focusNode,
+                        minLines: 1,
+                        maxLines: 5,
+                        textInputAction: TextInputAction.send,
+                        onSubmitted: (_) => _submit(),
+                        style: const TextStyle(color: AppTheme.textPrimary),
+                        decoration: const InputDecoration(
+                          hintText: 'Message Pegasus',
+                          hintStyle: TextStyle(color: AppTheme.textSecondary),
+                          border: InputBorder.none,
+                          isDense: true,
+                        ),
+                      ),
                     ),
-                    style: IconButton.styleFrom(
-                      backgroundColor: Colors.white.withOpacity(0.08),
-                      shape: const CircleBorder(),
+                    HoverGlow(
+                      borderRadius: BorderRadius.circular(24),
+                      glowColor: AppTheme.accentGlow,
+                      child: IconButton(
+                        onPressed: widget.isSending ? null : _submit,
+                        icon: Icon(
+                          Icons.arrow_upward_rounded,
+                          color: widget.isSending
+                              ? AppTheme.textSecondary
+                              : AppTheme.accent,
+                        ),
+                        style: IconButton.styleFrom(
+                          backgroundColor: Colors.white.withOpacity(0.08),
+                          shape: const CircleBorder(),
+                        ),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ],

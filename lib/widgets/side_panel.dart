@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../models/conversation.dart';
 import '../theme/app_theme.dart';
+import 'hover_glow.dart';
 
 class SidePanel extends StatelessWidget {
   final List<Conversation> conversations;
@@ -64,11 +65,14 @@ class SidePanel extends StatelessWidget {
                           ),
                         ),
                         const Spacer(),
-                        IconButton(
-                          tooltip: 'New chat',
-                          icon: const Icon(Icons.add_rounded,
-                              color: AppTheme.accent),
-                          onPressed: onNewChat,
+                        HoverGlow(
+                          borderRadius: BorderRadius.circular(20),
+                          child: IconButton(
+                            tooltip: 'New chat',
+                            icon: const Icon(Icons.add_rounded,
+                                color: AppTheme.accent),
+                            onPressed: onNewChat,
+                          ),
                         ),
                       ],
                     ),
@@ -99,35 +103,56 @@ class SidePanel extends StatelessWidget {
                                       color: Colors.white),
                                 ),
                                 onDismissed: (_) => onDelete(c.id),
-                                child: ListTile(
-                                  selected: isActive,
-                                  selectedTileColor:
-                                      Colors.white.withOpacity(0.06),
-                                  leading: const Icon(
-                                    Icons.chat_bubble_outline_rounded,
-                                    color: AppTheme.textSecondary,
-                                    size: 18,
-                                  ),
-                                  title: Text(
-                                    c.title,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: AppTheme.textPrimary,
-                                      fontSize: 14,
+                                child: HoverGlow(
+                                  borderRadius: BorderRadius.circular(12),
+                                  hoverScale: 1.0,
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 180),
+                                    margin: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: isActive
+                                          ? AppTheme.accent.withOpacity(0.14)
+                                          : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: isActive
+                                          ? Border.all(
+                                              color: AppTheme.accent
+                                                  .withOpacity(0.4))
+                                          : null,
+                                    ),
+                                    child: ListTile(
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius:
+                                            BorderRadius.circular(12),
+                                      ),
+                                      leading: const Icon(
+                                        Icons.chat_bubble_outline_rounded,
+                                        color: AppTheme.textSecondary,
+                                        size: 18,
+                                      ),
+                                      title: Text(
+                                        c.title,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: AppTheme.textPrimary,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                      subtitle: Text(
+                                        _formatDate(c.updatedAt),
+                                        style: const TextStyle(
+                                          color: AppTheme.textSecondary,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                      onTap: () {
+                                        onSelect(c.id);
+                                        Navigator.of(context).pop();
+                                      },
                                     ),
                                   ),
-                                  subtitle: Text(
-                                    _formatDate(c.updatedAt),
-                                    style: const TextStyle(
-                                      color: AppTheme.textSecondary,
-                                      fontSize: 11,
-                                    ),
-                                  ),
-                                  onTap: () {
-                                    onSelect(c.id);
-                                    Navigator.of(context).pop();
-                                  },
                                 ),
                               );
                             },

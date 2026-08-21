@@ -6,7 +6,9 @@ import '../models/conversation.dart';
 import '../services/gemini_service.dart';
 import '../services/storage_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/animated_entrance.dart';
 import '../widgets/chat_input.dart';
+import '../widgets/hover_glow.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/side_panel.dart';
 import '../widgets/typing_indicator.dart';
@@ -100,40 +102,59 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
 
-    // Lazily create a conversation on first message so empty chats never
-    // clutter the side panel.
-    var convo = _activeConversation;
-    if (convo == null) {
-      convo = Conversation(
+    Conversation? convo = _activeConversation;
+    ChatMessage? userMsg;
+    List<ChatMessage> priorHistory = [];
+
+    try {
+      // Lazily create a conversation on first message so empty chats never
+      // clutter the side panel.
+      convo ??= Conversation(
         id: _uuid.v4(),
         title: text.length > 40 ? '${text.substring(0, 40)}...' : text,
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       );
-      await _storage.saveConversation(convo);
+      if (_activeConversation == null) {
+        await _storage.saveConversation(convo);
+        setState(() {
+          _activeConversation = convo;
+          _conversations = [convo!, ..._conversations];
+        });
+      }
+
+      userMsg = ChatMessage(
+        id: _uuid.v4(),
+        conversationId: convo.id,
+        text: text,
+        role: MessageRole.user,
+        attachmentName: attachment?.name,
+        attachmentMimeType: attachment?.mimeType,
+      );
+      await _storage.saveMessage(userMsg);
+
+      priorHistory = List<ChatMessage>.from(_messages);
+
       setState(() {
-        _activeConversation = convo;
-        _conversations = [convo!, ..._conversations];
+        _messages.add(userMsg!);
+        _isSending = true;
       });
+      _scrollToBottom();
+    } catch (e) {
+      // A failure here (e.g. a local storage/plugin issue) must never
+      // vanish silently — show it immediately, even before we've tried
+      // contacting the API at all.
+      setState(() {
+        _messages.add(ChatMessage(
+          id: _uuid.v4(),
+          conversationId: convo?.id ?? '',
+          text: 'Could not send message: $e',
+          role: MessageRole.error,
+        ));
+      });
+      _scrollToBottom();
+      return;
     }
-
-    final userMsg = ChatMessage(
-      id: _uuid.v4(),
-      conversationId: convo.id,
-      text: text,
-      role: MessageRole.user,
-      attachmentName: attachment?.name,
-      attachmentMimeType: attachment?.mimeType,
-    );
-    await _storage.saveMessage(userMsg);
-
-    final priorHistory = List<ChatMessage>.from(_messages);
-
-    setState(() {
-      _messages.add(userMsg);
-      _isSending = true;
-    });
-    _scrollToBottom();
 
     final modelMsgId = _uuid.v4();
     var accumulated = '';
@@ -168,13 +189,13 @@ class _ChatScreenState extends State<ChatScreen> {
       if (accumulated.isNotEmpty) {
         final finalMsg = ChatMessage(
           id: modelMsgId,
-          conversationId: convo.id,
+          conversationId: convo!.id,
           text: accumulated,
           role: MessageRole.model,
         );
         await _storage.saveMessage(finalMsg);
         final updatedConvo =
-            convo.copyWith(updatedAt: DateTime.now());
+            convo!.copyWith(updatedAt: DateTime.now());
         await _storage.saveConversation(updatedConvo);
         setState(() {
           _activeConversation = updatedConvo;
@@ -190,6 +211,18 @@ class _ChatScreenState extends State<ChatScreen> {
           id: _uuid.v4(),
           conversationId: convo!.id,
           text: e.message,
+          role: MessageRole.error,
+        ));
+      });
+    } catch (e) {
+      // Catch-all so a storage/plugin failure (like the Windows sqflite
+      // issue this fixed) always shows as a visible error bubble instead
+      // of silently discarding the message with no feedback.
+      setState(() {
+        _messages.add(ChatMessage(
+          id: _uuid.v4(),
+          conversationId: convo?.id ?? '',
+          text: 'Something went wrong: $e',
           role: MessageRole.error,
         ));
       });
@@ -218,10 +251,14 @@ class _ChatScreenState extends State<ChatScreen> {
         appBar: AppBar(
           title: const Text('Pegasus'),
           actions: [
-            IconButton(
-              tooltip: 'New chat',
-              icon: const Icon(Icons.edit_square, color: AppTheme.textSecondary),
-              onPressed: _startNewChat,
+            HoverGlow(
+              borderRadius: BorderRadius.circular(20),
+              child: IconButton(
+                tooltip: 'New chat',
+                icon: const Icon(Icons.edit_square,
+                    color: AppTheme.textSecondary),
+                onPressed: _startNewChat,
+              ),
             ),
           ],
         ),
@@ -239,7 +276,10 @@ class _ChatScreenState extends State<ChatScreen> {
                         if (index == _messages.length) {
                           return const TypingIndicator();
                         }
-                        return MessageBubble(message: _messages[index]);
+                        return AnimatedEntrance(
+                          key: ValueKey(_messages[index].id),
+                          child: MessageBubble(message: _messages[index]),
+                        );
                       },
                     ),
             ),
@@ -257,8 +297,31 @@ class _ChatScreenState extends State<ChatScreen> {
       _messages.isEmpty || _messages.last.role != MessageRole.model;
 }
 
-class _EmptyState extends StatelessWidget {
+class _EmptyState extends StatefulWidget {
   const _EmptyState();
+
+  @override
+  State<_EmptyState> createState() => _EmptyStateState();
+}
+
+class _EmptyStateState extends State<_EmptyState>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -266,9 +329,31 @@ class _EmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.auto_awesome_rounded,
-              color: AppTheme.textSecondary.withOpacity(0.6), size: 40),
-          const SizedBox(height: 12),
+          AnimatedBuilder(
+            animation: _controller,
+            builder: (context, _) {
+              final glow = 0.25 + (_controller.value * 0.25);
+              return Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppTheme.accent.withOpacity(glow),
+                      blurRadius: 40,
+                      spreadRadius: 4,
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.auto_awesome_rounded,
+                  color: AppTheme.textPrimary,
+                  size: 36,
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 16),
           const Text(
             'Ask Pegasus anything',
             style: TextStyle(color: AppTheme.textSecondary, fontSize: 15),

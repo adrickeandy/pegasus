@@ -5,13 +5,20 @@ import '../models/chat_message.dart';
 import '../theme/app_theme.dart';
 import 'glass_container.dart';
 
-class MessageBubble extends StatelessWidget {
+class MessageBubble extends StatefulWidget {
   final ChatMessage message;
 
   const MessageBubble({super.key, required this.message});
 
+  @override
+  State<MessageBubble> createState() => _MessageBubbleState();
+}
+
+class _MessageBubbleState extends State<MessageBubble> {
+  bool _hovering = false;
+
   void _copyToClipboard(BuildContext context) {
-    Clipboard.setData(ClipboardData(text: message.text));
+    Clipboard.setData(ClipboardData(text: widget.message.text));
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Copied to clipboard'),
@@ -23,6 +30,7 @@ class MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final message = widget.message;
     final isUser = message.isUser;
     final Color bg = message.isError
         ? AppTheme.errorBubble
@@ -30,9 +38,27 @@ class MessageBubble extends StatelessWidget {
 
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-      child: GestureDetector(
-        onLongPress: () => _copyToClipboard(context),
-        child: GlassContainer(
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _hovering = true),
+        onExit: (_) => setState(() => _hovering = false),
+        child: GestureDetector(
+          onLongPress: () => _copyToClipboard(context),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            transform: Matrix4.translationValues(0, _hovering ? -2 : 0, 0),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              boxShadow: _hovering
+                  ? [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.25),
+                        blurRadius: 16,
+                        offset: const Offset(0, 6),
+                      ),
+                    ]
+                  : [],
+            ),
+            child: GlassContainer(
           margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 12),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           fillColor: bg,
@@ -109,6 +135,8 @@ class MessageBubble extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    ),
       ),
     );
   }

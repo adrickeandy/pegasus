@@ -19,6 +19,17 @@ class AppTheme {
   static const Color accent = Color(0xFF7C93FF);
   static const Color accentGlow = Color(0xFF9B7CFF);
 
+  /// Soft ambient glow used behind key elements (send button, app icon,
+  /// active side-panel item) to give the UI a bit of depth and life
+  /// instead of flat glass panels.
+  static List<BoxShadow> get ambientGlow => [
+        BoxShadow(
+          color: accent.withOpacity(0.35),
+          blurRadius: 24,
+          spreadRadius: -4,
+        ),
+      ];
+
   static const LinearGradient backgroundGradient = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
