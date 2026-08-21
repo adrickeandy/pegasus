@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
+import 'glass_container.dart';
 
-/// Simple three-dot "thinking" indicator. Built with a plain
-/// AnimationController — no external animation package needed.
 class TypingIndicator extends StatefulWidget {
   const TypingIndicator({super.key});
 
@@ -33,17 +32,15 @@ class _TypingIndicatorState extends State<TypingIndicator>
   Widget build(BuildContext context) {
     return Align(
       alignment: Alignment.centerLeft,
-      child: Container(
+      child: GlassContainer(
         margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 12),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          color: AppTheme.modelBubble,
-          borderRadius: const BorderRadius.only(
-            topLeft: Radius.circular(16),
-            topRight: Radius.circular(16),
-            bottomRight: Radius.circular(16),
-            bottomLeft: Radius.circular(4),
-          ),
+        blurSigma: 12,
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(18),
+          topRight: Radius.circular(18),
+          bottomRight: Radius.circular(18),
+          bottomLeft: Radius.circular(4),
         ),
         child: AnimatedBuilder(
           animation: _controller,
@@ -52,10 +49,8 @@ class _TypingIndicatorState extends State<TypingIndicator>
               mainAxisSize: MainAxisSize.min,
               children: List.generate(3, (i) {
                 final t = (_controller.value - (i * 0.2)) % 1.0;
-                final opacity = (t < 0.5 ? t * 2 : (1 - t) * 2).clamp(
-                  0.3,
-                  1.0,
-                );
+                final opacity =
+                    (t < 0.5 ? t * 2 : (1 - t) * 2).clamp(0.3, 1.0);
                 return Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 2),
                   child: Opacity(

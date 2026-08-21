@@ -1,8 +1,13 @@
+import 'dart:convert';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:mime/mime.dart';
+import '../models/chat_message.dart';
 import '../theme/app_theme.dart';
+import 'glass_container.dart';
 
 class ChatInput extends StatefulWidget {
-  final ValueChanged<String> onSend;
+  final void Function(String text, Attachment? attachment) onSend;
   final bool isSending;
 
   const ChatInput({
@@ -17,12 +22,57 @@ class ChatInput extends StatefulWidget {
 
 class _ChatInputState extends State<ChatInput> {
   final TextEditingController _controller = TextEditingController();
+  Attachment? _pendingAttachment;
+  bool _isPicking = false;
+
+  Future<void> _pickFile() async {
+    setState(() => _isPicking = true);
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: [
+          'png', 'jpg', 'jpeg', 'webp', 'pdf', 'txt', 'md', 'csv'
+        ],
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty) return;
+      final file = result.files.first;
+      if (file.bytes == null) return;
+
+      // Keep attachments small — large files cost a lot of tokens and can
+      // blow past request size limits. 4MB is a generous ceiling for a
+      // chat attachment; raise it in config if you need bigger files.
+      const maxBytes = 4 * 1024 * 1024;
+      if (file.bytes!.length > maxBytes) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('File too large — 4MB max.')),
+          );
+        }
+        return;
+      }
+
+      final mimeType = lookupMimeType(file.name) ?? 'application/octet-stream';
+      setState(() {
+        _pendingAttachment = Attachment(
+          name: file.name,
+          mimeType: mimeType,
+          base64Data: base64Encode(file.bytes!),
+        );
+      });
+    } finally {
+      if (mounted) setState(() => _isPicking = false);
+    }
+  }
 
   void _submit() {
     final text = _controller.text.trim();
-    if (text.isEmpty || widget.isSending) return;
-    widget.onSend(text);
+    if ((text.isEmpty && _pendingAttachment == null) || widget.isSending) {
+      return;
+    }
+    widget.onSend(text.isEmpty ? 'Describe this file.' : text, _pendingAttachment);
     _controller.clear();
+    setState(() => _pendingAttachment = null);
   }
 
   @override
@@ -35,51 +85,93 @@ class _ChatInputState extends State<ChatInput> {
   Widget build(BuildContext context) {
     return SafeArea(
       top: false,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-        decoration: const BoxDecoration(
-          color: AppTheme.background,
-          border: Border(top: BorderSide(color: Color(0xFF232427))),
-        ),
-        child: Row(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(10, 6, 10, 10),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Expanded(
-              child: TextField(
-                controller: _controller,
-                minLines: 1,
-                maxLines: 5,
-                textInputAction: TextInputAction.send,
-                onSubmitted: (_) => _submit(),
-                style: const TextStyle(color: AppTheme.textPrimary),
-                decoration: InputDecoration(
-                  hintText: 'Message Pegasus',
-                  hintStyle: const TextStyle(color: AppTheme.textSecondary),
-                  filled: true,
-                  fillColor: AppTheme.surface,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 10,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(22),
-                    borderSide: BorderSide.none,
+            if (_pendingAttachment != null)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: GlassContainer(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  borderRadius: BorderRadius.circular(14),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.attach_file_rounded,
+                          size: 16, color: AppTheme.accent),
+                      const SizedBox(width: 6),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 180),
+                        child: Text(
+                          _pendingAttachment!.name,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: AppTheme.textPrimary,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      GestureDetector(
+                        onTap: () =>
+                            setState(() => _pendingAttachment = null),
+                        child: const Icon(Icons.close_rounded,
+                            size: 16, color: AppTheme.textSecondary),
+                      ),
+                    ],
                   ),
                 ),
               ),
-            ),
-            const SizedBox(width: 8),
-            IconButton(
-              onPressed: widget.isSending ? null : _submit,
-              icon: Icon(
-                Icons.arrow_upward_rounded,
-                color: widget.isSending
-                    ? AppTheme.textSecondary
-                    : AppTheme.accent,
-              ),
-              style: IconButton.styleFrom(
-                backgroundColor: AppTheme.surface,
-                shape: const CircleBorder(),
-                padding: const EdgeInsets.all(10),
+            GlassContainer(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              borderRadius: BorderRadius.circular(26),
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed: (widget.isSending || _isPicking)
+                        ? null
+                        : _pickFile,
+                    icon: Icon(
+                      Icons.add_circle_outline_rounded,
+                      color: _isPicking
+                          ? AppTheme.textSecondary
+                          : AppTheme.accent,
+                    ),
+                  ),
+                  Expanded(
+                    child: TextField(
+                      controller: _controller,
+                      minLines: 1,
+                      maxLines: 5,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => _submit(),
+                      style: const TextStyle(color: AppTheme.textPrimary),
+                      decoration: const InputDecoration(
+                        hintText: 'Message Pegasus',
+                        hintStyle: TextStyle(color: AppTheme.textSecondary),
+                        border: InputBorder.none,
+                        isDense: true,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: widget.isSending ? null : _submit,
+                    icon: Icon(
+                      Icons.arrow_upward_rounded,
+                      color: widget.isSending
+                          ? AppTheme.textSecondary
+                          : AppTheme.accent,
+                    ),
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.white.withOpacity(0.08),
+                      shape: const CircleBorder(),
+                    ),
+                  ),
+                ],
               ),
             ),
           ],

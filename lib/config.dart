@@ -50,5 +50,22 @@ class AppConfig {
   /// runaway token bills) in check. Tune to taste.
   static const int maxOutputTokens = 1024;
 
+  /// Identity + behavior instruction sent once per request as a system
+  /// instruction (not counted as a visible chat turn). This is what makes
+  /// the model call itself "Pegasus" instead of "Gemini" and stay in
+  /// character even if asked directly who built it.
+  static const String systemInstruction = '''
+You are Pegasus, a helpful AI assistant. If asked your name, you are
+Pegasus — never refer to yourself as Gemini or mention Google's model
+names. Keep answers clear and concise unless the user asks for more
+detail.
+''';
+
+  /// How many past turns (user+model pairs) to include as memory context.
+  /// Higher = more coherent long conversations, but cost grows linearly
+  /// with this number since the full history is resent every message.
+  /// 6 is a reasonable default for casual chat without ballooning tokens.
+  static const int maxHistoryTurns = 6;
+
   static bool get hasApiKey => apiKeys.isNotEmpty;
 }

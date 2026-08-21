@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../config.dart';
+import '../models/chat_message.dart';
 
 class GeminiException implements Exception {
   final String message;
@@ -9,24 +10,27 @@ class GeminiException implements Exception {
   String toString() => message;
 }
 
-/// Thin wrapper around the Gemini generateContent REST endpoint, with
-/// automatic key rotation on rate limits.
-///
-/// Deliberately stateless per message: each call sends only the current
-/// prompt, not a growing history. That's what "no history yet" means at
-/// the API level — it also keeps token usage flat and predictable per
-/// message instead of growing every single turn.
+class _RateLimitException implements Exception {}
+
+/// Wrapper around the Gemini API with:
+/// - streaming responses (streamGenerateContent)
+/// - automatic key rotation on rate limits
+/// - bounded conversation memory
+/// - optional single file attachment per message
 class GeminiService {
   final http.Client _client;
-
-  /// Index of the key currently being tried first. Persists across calls
-  /// within this session so once a key is known to be cooling down, we
-  /// don't waste a request re-trying it every single message.
   int _currentKeyIndex = 0;
 
   GeminiService({http.Client? client}) : _client = client ?? http.Client();
 
-  Future<String> sendMessage(String prompt) async {
+  /// Streams reply text chunks as they arrive. [history] is prior turns
+  /// (oldest first), NOT including the new [prompt]. Only the last
+  /// [AppConfig.maxHistoryTurns] turns are sent, to bound token growth.
+  Stream<String> sendMessageStream(
+    String prompt, {
+    List<ChatMessage> history = const [],
+    Attachment? attachment,
+  }) async* {
     final keys = AppConfig.apiKeys;
     if (keys.isEmpty) {
       throw GeminiException(
@@ -37,23 +41,25 @@ class GeminiService {
 
     GeminiException? lastError;
 
-    // Try each key at most once per message, starting from the last known
-    // good index so we don't keep re-hitting an exhausted key first.
     for (int attempt = 0; attempt < keys.length; attempt++) {
       final index = (_currentKeyIndex + attempt) % keys.length;
       final key = keys[index];
 
       try {
-        final reply = await _callApi(prompt, key);
-        _currentKeyIndex = index; // remember the key that worked
-        return reply;
+        var succeeded = false;
+        await for (final chunk
+            in _streamApi(prompt, key, history, attachment)) {
+          succeeded = true;
+          yield chunk;
+        }
+        if (succeeded) {
+          _currentKeyIndex = index;
+          return;
+        }
       } on _RateLimitException {
-        // This key is exhausted — move on to the next one silently.
         lastError = GeminiException('All configured keys are rate-limited.');
         continue;
       } on GeminiException {
-        // Non-rate-limit error (bad key, network issue, etc.) — don't
-        // burn through every remaining key for a non-quota problem.
         rethrow;
       }
     }
@@ -61,39 +67,65 @@ class GeminiService {
     throw lastError ?? GeminiException('All keys failed.');
   }
 
-  Future<String> _callApi(String prompt, String apiKey) async {
+  Stream<String> _streamApi(
+    String prompt,
+    String apiKey,
+    List<ChatMessage> history,
+    Attachment? attachment,
+  ) async* {
     final uri = Uri.parse(
-      '${AppConfig.baseUrl}/${AppConfig.model}:generateContent',
+      '${AppConfig.baseUrl}/${AppConfig.model}:streamGenerateContent?alt=sse',
     );
 
+    final trimmed = history.length > AppConfig.maxHistoryTurns * 2
+        ? history.sublist(history.length - AppConfig.maxHistoryTurns * 2)
+        : history;
+
+    final userParts = <Map<String, dynamic>>[
+      {'text': prompt},
+    ];
+    if (attachment != null) {
+      userParts.add({
+        'inline_data': {
+          'mime_type': attachment.mimeType,
+          'data': attachment.base64Data,
+        },
+      });
+    }
+
+    final contents = [
+      ...trimmed.map((m) => {
+            'role': m.isUser ? 'user' : 'model',
+            'parts': [
+              {'text': m.text}
+            ],
+          }),
+      {'role': 'user', 'parts': userParts},
+    ];
+
     final body = jsonEncode({
-      'contents': [
-        {
-          'parts': [
-            {'text': prompt}
-          ],
-        }
-      ],
+      'system_instruction': {
+        'parts': [
+          {'text': AppConfig.systemInstruction}
+        ],
+      },
+      'contents': contents,
       'generationConfig': {
         'maxOutputTokens': AppConfig.maxOutputTokens,
-        'thinkingConfig': {
-          'thinkingBudget': AppConfig.thinkingBudget,
-        },
+        'thinkingConfig': {'thinkingBudget': AppConfig.thinkingBudget},
       },
     });
 
-    http.Response response;
+    final request = http.Request('POST', uri)
+      ..headers['x-goog-api-key'] = apiKey
+      ..headers['content-type'] = 'application/json'
+      ..body = body;
+
+    http.StreamedResponse response;
     try {
-      response = await _client
-          .post(
-            uri,
-            headers: {
-              'x-goog-api-key': apiKey,
-              'content-type': 'application/json',
-            },
-            body: body,
-          )
-          .timeout(const Duration(seconds: 30));
+      response = await _client.send(request).timeout(
+            const Duration(seconds: 45),
+          );
     } catch (e) {
       throw GeminiException('Network error — check your connection.');
     }
@@ -103,25 +135,41 @@ class GeminiService {
     }
 
     if (response.statusCode != 200) {
-      final msg = _extractErrorMessage(response.body);
-      throw GeminiException('API error (${response.statusCode}): $msg');
+      final raw = await response.stream.bytesToString();
+      throw GeminiException(
+        'API error (${response.statusCode}): ${_extractErrorMessage(raw)}',
+      );
     }
 
-    return _extractReplyText(response.body);
-  }
+    // Server-Sent Events: each event is a line starting with "data: "
+    // followed by a JSON chunk. We buffer partial lines across network
+    // packets since SSE frames don't always align with TCP chunk edges.
+    String buffer = '';
+    await for (final bytes in response.stream) {
+      buffer += utf8.decode(bytes, allowMalformed: true);
+      final lines = buffer.split('\n');
+      buffer = lines.removeLast(); // keep any incomplete trailing line
 
-  String _extractReplyText(String rawBody) {
-    try {
-      final decoded = jsonDecode(rawBody) as Map<String, dynamic>;
-      final candidates = decoded['candidates'] as List?;
-      if (candidates == null || candidates.isEmpty) {
-        throw GeminiException('Empty response from model.');
+      for (final line in lines) {
+        final trimmedLine = line.trim();
+        if (!trimmedLine.startsWith('data: ')) continue;
+        final jsonStr = trimmedLine.substring(6).trim();
+        if (jsonStr.isEmpty || jsonStr == '[DONE]') continue;
+
+        try {
+          final decoded = jsonDecode(jsonStr) as Map<String, dynamic>;
+          final candidates = decoded['candidates'] as List?;
+          if (candidates == null || candidates.isEmpty) continue;
+          final parts = candidates[0]['content']?['parts'] as List?;
+          if (parts == null) continue;
+          final text =
+              parts.map((p) => p['text'] as String? ?? '').join();
+          if (text.isNotEmpty) yield text;
+        } catch (_) {
+          // Skip malformed/partial chunks rather than crashing the stream.
+          continue;
+        }
       }
-      final parts = candidates[0]['content']['parts'] as List;
-      return parts.map((p) => p['text'] as String? ?? '').join().trim();
-    } catch (e) {
-      if (e is GeminiException) rethrow;
-      throw GeminiException('Could not parse response.');
     }
   }
 
@@ -136,6 +184,3 @@ class GeminiService {
 
   void dispose() => _client.close();
 }
-
-/// Internal marker — a 429 means "try the next key", not "give up".
-class _RateLimitException implements Exception {}
