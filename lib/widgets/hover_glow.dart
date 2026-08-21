@@ -39,7 +39,6 @@ class _HoverGlowState extends State<HoverGlow> {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOut,
-          borderRadius: widget.borderRadius,
           decoration: BoxDecoration(
             borderRadius: widget.borderRadius,
             boxShadow: _hovering
