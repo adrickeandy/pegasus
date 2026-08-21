@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Adding Features to Pegasus</title>
+<style>
+  :root {
+    --bg: #0e0f11;
+    --surface: #1a1b1e;
+    --surface-2: #1f2023;
+    --border: #2a2b2f;
+    --text: #ececec;
+    --text-dim: #9a9ca3;
+    --accent: #6c8cff;
+    --code-bg: #141517;
+    --step-num-bg: #2b5ce6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    margin: 0;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 800px; margin: 0 auto; padding: 40px 20px 80px; }
+  h1 { font-size: 27px; margin: 0 0 8px; letter-spacing: -0.02em; }
+  .subtitle { color: var(--text-dim); font-size: 15px; margin: 0 0 32px; }
+  h2 { font-size: 18px; margin: 0 0 10px; color: var(--text); }
+  h3 { font-size: 14px; color: var(--accent); text-transform: uppercase; letter-spacing: 0.04em; margin: 28px 0 10px; }
+  p { color: var(--text-dim); font-size: 14.5px; margin: 0 0 12px; }
+  code {
+    background: var(--code-bg); border: 1px solid var(--border); color: #a8c7ff;
+    padding: 2px 6px; border-radius: 4px; font-family: "SF Mono", Consolas, monospace; font-size: 13px;
+  }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px 16px; overflow-x: auto; font-size: 13px; line-height: 1.5; margin: 10px 0;
+  }
+  pre code { background: none; border: none; padding: 0; color: #cfe0ff; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 18px 20px; margin-bottom: 20px;
+  }
+  .card.accent { border-left: 3px solid var(--accent); }
+  .file-path {
+    display: inline-flex; align-items: center; gap: 6px; background: var(--surface-2);
+    border: 1px solid var(--border); padding: 3px 10px; border-radius: 6px;
+    font-family: "SF Mono", Consolas, monospace; font-size: 12.5px; color: var(--accent); margin-bottom: 8px;
+  }
+  .note {
+    background: #1f1a12; border: 1px solid #3a3020; border-left: 3px solid #d9a441;
+    border-radius: 6px; padding: 10px 14px; font-size: 13.5px; color: #e0c68a; margin: 10px 0;
+  }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 20px; font-size: 13.5px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); color: var(--text-dim); }
+  th { color: var(--text); font-weight: 600; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 36px 0; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Adding Features to Pegasus</h1>
+  <p class="subtitle">A map of the codebase and the pattern to follow when extending it.</p>
+
+  <h3>Where things live</h3>
+  <table>
+    <tr><th>You want to change...</th><th>Go to</th></tr>
+    <tr><td>Colors, gradients, glass look</td><td><code>lib/theme/app_theme.dart</code></td></tr>
+    <tr><td>API behavior, token limits, identity</td><td><code>lib/config.dart</code></td></tr>
+    <tr><td>How messages are sent/received</td><td><code>lib/services/gemini_service.dart</code></td></tr>
+    <tr><td>What gets saved locally</td><td><code>lib/services/storage_service.dart</code></td></tr>
+    <tr><td>Message bubble appearance</td><td><code>lib/widgets/message_bubble.dart</code></td></tr>
+    <tr><td>The text input bar</td><td><code>lib/widgets/chat_input.dart</code></td></tr>
+    <tr><td>The history drawer</td><td><code>lib/widgets/side_panel.dart</code></td></tr>
+    <tr><td>Overall screen logic/state</td><td><code>lib/screens/chat_screen.dart</code></td></tr>
+  </table>
+
+  <h3>The general pattern</h3>
+  <div class="card">
+    <p>Almost every feature touches the same three layers, in this order:</p>
+    <p>1. <strong>Model</strong> (<code>lib/models/</code>) — if you're storing new
+    data (e.g. a "starred" flag on a message), add the field here first, plus
+    to <code>toMap()</code>/<code>fromMap()</code> if it needs to persist.</p>
+    <p>2. <strong>Service</strong> (<code>lib/services/</code>) — the logic that
+    talks to the API or the database. UI code should never call
+    <code>http</code> or <code>sqflite</code> directly — it goes through
+    a service.</p>
+    <p>3. <strong>Widget/Screen</strong> (<code>lib/widgets/</code>,
+    <code>lib/screens/</code>) — the UI that calls the service and displays
+    the result. <code>chat_screen.dart</code> is the one place that holds
+    app-wide state (<code>_messages</code>, <code>_conversations</code>) and
+    passes it down to widgets as props.</p>
+  </div>
+
+  <h3>Worked example: adding a "regenerate response" button</h3>
+  <div class="card accent">
+    <p><strong>1. Service</strong> — <code>gemini_service.dart</code> already
+    exposes <code>sendMessageStream()</code>. No new service code needed —
+    you're just calling the same method again.</p>
+    <p><strong>2. Screen</strong> — in <code>chat_screen.dart</code>, add a
+    method <code>_regenerateLast()</code> that removes the last model
+    message from <code>_messages</code> and re-runs <code>_handleSend()</code>
+    with the previous user message's text.</p>
+    <p><strong>3. Widget</strong> — in <code>message_bubble.dart</code>, add
+    a small icon button (only shown when <code>!message.isUser</code>) that
+    calls a new callback prop, e.g. <code>onRegenerate</code>, passed down
+    from <code>chat_screen.dart</code>.</p>
+  </div>
+
+  <h3>Adding a new database field</h3>
+  <p>Since the schema is created once in
+  <code>storage_service.dart</code> → <code>_initDb()</code>, changing it
+  after the app has already shipped needs a migration, not just an edit.
+  The simplest approach for a hobby project:</p>
+  <pre><code>return openDatabase(
+  path,
+  version: 2,  // bump this
+  onCreate: (db, version) async { /* ...existing tables... */ },
+  onUpgrade: (db, oldVersion, newVersion) async {
+    if (oldVersion &lt; 2) {
+      await db.execute('ALTER TABLE messages ADD COLUMN starred INTEGER DEFAULT 0');
+    }
+  },
+);</code></pre>
+  <div class="note">Anyone with the old app version installed will run this
+  migration automatically the next time they open the updated app —
+  their existing conversations won't be lost.</div>
+
+  <h3>Adding a new dependency</h3>
+  <p>Add it to <code>pubspec.yaml</code> under <code>dependencies:</code>,
+  then run <code>flutter pub get</code> locally, or just push — GitHub
+  Actions runs <code>flutter pub get</code> automatically as part of the
+  build, so you don't need to do anything extra there.</p>
+
+  <h3>Testing a change before pushing</h3>
+  <div class="card">
+    <p>Since you're building via GitHub Actions rather than locally, the
+    fastest sanity check before a push is <code>flutter analyze</code> — but
+    that needs a local Flutter install. Without one, your real test loop is:
+    push → check the Actions tab → read the build log if it fails. Slower,
+    but works fine for a project this size. If you find yourself iterating a
+    lot, installing Flutter locally later (once you have more data budget)
+    will save real time.</p>
+  </div>
+
+  <hr>
+
+  <p style="text-align:center; font-size:13px;">Keep this file updated as the codebase grows — it's meant to save future-you the trouble of re-reading every file from scratch.</p>
+
+</div>
+</body>
+</html>
